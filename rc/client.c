@@ -68,7 +68,7 @@ void readyOrNot(int sd) {
       perror("[client] Eroare la read() de la server.\n");
       exit(errno);
     }
-    printf("Aici");
+
 
     /* afisam mesajul primit */
     printf("[client] Mesajul primit este: %s\n", msg);
