@@ -60,18 +60,30 @@ void* handle_client(void* arg) {
         pthread_mutex_unlock(&mutex);
         bytes_received = recv(client_fd, buffer, sizeof(buffer), 0);
         if (bytes_received <= 0) {
-                // Eroare sau clientul s-a deconectat
-                printf("Clientul cu descriptorul %d s-a deconectat.\n", client_fd);
-
-            } else {
-        buffer[bytes_received] = '\0'; // Adauga terminatorul la sfarsitul datelor primite
-        printf(buffer);
-        if (strcmp(buffer, "DA\0") == 0) {
-    printf("Da ma da\n");
-}}
+            // Eroare sau clientul s-a deconectat
+            printf("Clientul cu descriptorul %d s-a deconectat.\n", client_fd);
+        }
+        else{
+            char response[100];
+            // Procesează răspunsul de la client
+            buffer[bytes_received] = '\0'; // Adauga terminatorul la sfarsitul datelor primite
+            remove_newline(buffer);
+            printf("Clientul %d a raspuns %s\n", client_fd, buffer);
+            if (strcmp(buffer, "DA\0") == 0) {
+            sprintf(response, "Ready to play!\n");
+            printf("%s", response);
+                send(client_fd, response, strlen(response), 0);
+            }
+//            else {
+//                sprintf(response,"Raspuns corect!\n");
+//                printf("Raspuns corect!\n");
+//                send(client_fd, response, strlen(response), 0);
+//            }
+        }
+    }
 
         printf("Clientul %d a inceput jocul.\n", client_fd);
-    int i = 0;
+        int i = 0;
          while (i < MAX_Questions) {
             i++;
 
@@ -116,13 +128,10 @@ void* handle_client(void* arg) {
                 buffer[bytes_received] = '\0'; // Adauga terminatorul la sfarsitul datelor primite
                 printf("Mesaj de la client: %s\n", buffer);
 
-                char wait_message[100];
-                sprintf(wait_message, "Asteapta urmatoarea intrebare...\n");
-                send(client_fd, wait_message, strlen(wait_message), 0);
             }
         }
 
-    }
+
 
 }
 
