@@ -1,258 +1,228 @@
+//gcc -o serv serv.c cJSON/build/libcjson.a -lm -lsqlite3
+
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <string.h>
-#include <fcntl.h>
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/uio.h>
+#include <netinet/in.h>
 #include <unistd.h>
+#include <pthread.h>
+#include "cJSON/cJSON.h"
+#include "JSON_Functions.h"
+#include <sqlite3.h>
+#include "SQLite_Functions.h"
 
+#define DB_FILE "questions.db"
+#define PORT 2728
+#define MAXTHREADS 1000000
+#define MAX_Questions 20
 
+void askQuestions(int client_fd, int i,pthread_mutex_t* mutex){
+char rasp_corect[MAX_Questions] = {'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b', 'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b'};
 
-#define FIFO_NAME "MyTest_FIFO"
-#define CLIENT_FIFO "Client_FIFO"
+        // Trimite întrebarea către client
+        pthread_mutex_lock(&mutex);
+        char question[256];
+        sprintf(question, "Intrebarea %d \n Variante de raspuns: \n a)... \n b) ... \n c) ... \n d) ... \n", i);
+        printf("Intrebarea curenta: %d\n", i);
+        printf("Raspuns corect: %c\n", rasp_corect[i]);
+        send(client_fd, question, strlen(question), 0);
+        pthread_mutex_unlock(&mutex);
 
-int verifica_user(char *username) {
-    FILE *users;
-    char line[100];
+}
 
-    users = fopen("users.txt", "r");
+int client_fds[MAXTHREADS];
+pthread_t threads[MAXTHREADS];
+pthread_mutex_t mutex;
+pthread_barrier_t barrier;  // Barieră pentru a sincroniza clienții
 
-    if(users == NULL) {
-        perror("Eroare la deschiderea fisierului");
-        return -1;
+void remove_newline(char *str) {
+    size_t len = strlen(str);
+    if (len > 0 && str[len - 1] == '\n') {
+        str[len - 1] = '\0';  // Șterge caracterul nou
     }
+}
 
-    while(fgets(line, sizeof(line), users)){
-        line[strcspn(line, "\n")] = 0;
+void* handle_client(void* arg) {
+    int client_fd = *((int*)arg);
+    int i=1;
+    char buffer[256];
+    int bytes_received;
+    char rasp_corect[MAX_Questions] = {'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b', 'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b'};
+    while(1){
+        // Primeste date de la client
+        bytes_received = recv(client_fd, buffer, sizeof(buffer), 0);
+        if (bytes_received <= 0) {
+            // Eroare sau clientul s-a deconectat
+            printf("Clientul cu descriptorul %d s-a deconectat.\n", client_fd);
+            shutdown(client_fd, SHUT_RDWR);
+            // Excludere client din vectorul de descriptori
+            pthread_mutex_lock(&mutex);
+            close(client_fd);
+            for (int i = 0; i < MAXTHREADS; ++i) {
+                if (client_fds[i] == client_fd) {
+                    client_fds[i] = -1;
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&mutex);
+    //        const char* filename = "clients.json";
+    //        removeClientByFd(filename, client_fd);
+    //        printf("Client %d: ", client_fd);
+    //        printf("Client with fd %d removed from JSON.\n", client_fd);
 
-        if(strcmp(username, line) == 0) {
-            fclose(users);
-            return 1;
+            break;  // Iesire din bucla la deconectare
+        } else {
+
+            // Procesează datele de la client
+            buffer[bytes_received] = '\0'; // Adauga terminatorul la sfarsitul datelor primite
+            printf("De la clientul %d: %s\n", client_fd, buffer);
+
+            const char *filename = "clients.json";
+            if (strstr(buffer, "quit") != NULL){
+                printf("Clientul cu descriptorul %d s-a deconectat.\n", client_fd);
+                pthread_mutex_lock(&mutex);
+                for (int i = 0; i < MAXTHREADS; ++i) {
+                    if (client_fds[i] == client_fd) {
+                        client_fds[i] = -1;
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&mutex);
+                break;
+            }
+            else
+            if (strstr(buffer, "nume") != NULL) {
+                addClient(filename, client_fd, buffer);
+                pthread_mutex_lock(&mutex);
+                const char* response = "Te-ai conectat cu succes! Incepem jocul?";
+                send(client_fd, response, strlen(response), 0);
+                pthread_mutex_unlock(&mutex);
+            }
+            else
+            if (strstr(buffer, "ready") != NULL){
+                // Trimite un mesaj de la server către client
+                char response[100];
+                // Procesează răspunsul de la client
+                buffer[bytes_received] = '\0'; // Adauga terminatorul la sfarsitul datelor primite
+                remove_newline(buffer);
+                printf("Clientul %d a raspuns %s\n", client_fd, buffer);
+                if (strstr(buffer, "DA") !=NULL) {
+                    sprintf(response, "Ready to play!\n");
+                    printf("%s", response);
+                    send(client_fd, response, strlen(response), 0);
+                    printf("Clientul %d a inceput jocul.\n", client_fd);
+                    askQuestions(client_fd,i,&mutex);
+                }
+            }
+            else
+            if (strstr(buffer, "raspuns") != NULL) {
+    char response[100];
+    // Căutați începutul șirului "raspuns"
+    const char *start = strstr(buffer, "raspuns: ");
+    if (start != NULL) {
+        // Extrageți litera care urmează după "raspuns"
+        char answer = start[strlen("raspuns: ")];
+        printf("Clientul %d a raspuns cu litera: %c la intrebarea %d. \n", client_fd, answer, i);
+
+        if (answer != rasp_corect[i]) {
+            sprintf(response, "Raspuns gresit!\n");
+            printf("Raspuns gresit!\n");
+            send(client_fd, response, strlen(response), 0);
+        } else {
+            sprintf(response, "Raspuns corect!\n");
+            printf("Raspuns corect!\n");
+            send(client_fd, response, strlen(response), 0);
+        }
+    } else {
+        printf("Nu s-a gasit inceputul răspunsului.\n");
+    }
+}
+
+            else
+            if (strstr(buffer, "next") != NULL){
+                i++;
+                askQuestions(client_fd,i,&mutex);
+            }
         }
     }
-    fclose(users);
+}
+
+
+void initialize_server() {
+    int server_fd, client_fd, i;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t client_len;
+
+    // Creare socket pentru server
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        perror("Eroare la crearea socket-ului");
+        exit(EXIT_FAILURE);
+    }
+
+    // Inițializare structura server_addr
+    bzero((char*)&server_addr, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
+
+    // Legare socket la adresa și port
+    if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Eroare la legarea socket-ului");
+        exit(EXIT_FAILURE);
+    }
+
+    // Ascultare pentru conexiuni
+    listen(server_fd, 5);
+
+    // Inițializare vector de descriptori de clienti
+    pthread_mutex_init(&mutex, NULL);
+    pthread_barrier_init(&barrier, NULL, MAXTHREADS);
+    for (i = 0; i < MAXTHREADS; ++i) {
+        client_fds[i] = -1;
+    }
+
+    printf("Serverul asteapta conexiuni la portul %d...\n", PORT);
+
+    while (1) {
+        // Accepta conexiunea de la un client
+        client_len = sizeof(client_addr);
+        client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
+        if (client_fd < 0) {
+            perror("Eroare la acceptarea conexiunii");
+            exit(EXIT_FAILURE);
+        }
+
+        // Adauga noul client la vectorul de descriptori
+        pthread_mutex_lock(&mutex);
+        for (i = 0; i < MAXTHREADS; ++i) {
+            if (client_fds[i] == -1) {
+                client_fds[i] = client_fd;
+                pthread_create(&threads[i], NULL, handle_client, (void*)&client_fds[i]);
+                printf("Clientul cu descriptorul %d s-a conectat.\n", client_fd);
+
+                break;
+            }
+        }
+        pthread_mutex_unlock(&mutex);
+    }
+
+    pthread_barrier_destroy(&barrier);
+    pthread_mutex_destroy(&mutex);
+    close(server_fd);
+}
+
+
+
+int main() {
+    const char *filename = "clients.json";
+    deleteFileContent(filename);
+    initializeDatabase();
+
+    initialize_server();
+
     return 0;
-}
-
-void comanda_quit(int *pid_array, int num_pids) {
-    // Oprirea proceselor copil
-    for (int i = 0; i < num_pids; i++) {
-        kill(pid_array[i], SIGTERM); // Trimite semnalul de terminare (SIGTERM) către procesul copil
-    }
-
-    // Așteaptă ca toate procesele copil să se termine
-    for (int i = 0; i < num_pids; i++) {
-        int status;
-        waitpid(pid_array[i], &status, 0);
-    }
-
-    exit(0);
-}
-int main()
-{
-    char s[300];
-    int num, fd;
-    const char *prefix = "login : ";
-    pid_t pid_array[100];
-    int num_pids = 0;
-
-    int comm_pipe[2];
-
-    int logged_in = 0;
-
-    if(pipe(comm_pipe) == -1){
-        perror("Eroare la crearea pipe-ului");
-        exit(1);
-    }
-
-    int sock_pair[2];
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sock_pair) == -1) {
-        perror("Eroare la crearea socket pair-ului");
-        exit(1);
-    }
-
-    mknod(FIFO_NAME, S_IFIFO | 0666, 0);
-    mknod(CLIENT_FIFO, S_IFIFO | 0666, 0);
-
-    printf("Astept sa scrie cineva...\n");
-    fd = open(FIFO_NAME, O_RDONLY);
-    printf("A venit cineva:\n");
-
-    int fd_client = open(CLIENT_FIFO, O_WRONLY);
-    if (fd_client == -1) {
-        perror("Eroare la deschiderea FIFO-ului pentru client");
-        exit(1);
-    }
-
-    do {
-        if ((num = read(fd, s, 300)) == -1)
-            perror("Eroare la citirea din FIFO!");
-        else {
-            s[num] = '\0';
-            printf("S-au citit din FIFO %d bytes: \"%s\"\n", num, s);
-
-
-            //Comanda Login
-            if(strncmp(s, prefix, strlen(prefix)) == 0) {
-                char *username = s + strlen(prefix);
-                int pid_login = fork();
-                printf("Valoare pid: %d \n ", pid_login);
-                if(pid_login == 0) {
-                    printf("S-a creat procesul copil pentru comanda login!\n");
-
-                    char *username  = s + strlen(prefix);
-                    int rez = verifica_user(username);
-                    if (rez) {
-                        logged_in = 1;
-                    } else {
-                        logged_in = 0;
-                    }
-                    close(comm_pipe[0]);
-
-                    write(comm_pipe[1], &logged_in, sizeof(int));
-                    printf("logged_in : (pc), %d\n",logged_in);
-
-                    close(comm_pipe[1]);
-                    exit(0);
-
-                }
-                else if (pid_login > 0) {
-                    close(comm_pipe[1]);
-                    read(comm_pipe[0], &logged_in, sizeof(int));
-
-                }else if(pid_login < 0){
-                    perror("Eroare la fork");
-                    exit(1);
-                }
-                int rez_copil;
-
-                printf("logged_in: %d\n", logged_in);
-
-
-                if(logged_in== 1){
-                    printf("Success\n");
-
-                    const char *rez = "Success";
-                    write(fd_client, rez, strlen(rez) + 1);
-                }
-                else if(logged_in== 0){
-                    printf("Nope\n");
-                    const char *rez0 = "Username not in the file.";
-                    write(fd_client, rez0, strlen(rez0) + 1);
-                }
-                else {
-                    printf("Eroare\n");
-                }
-                  close(comm_pipe[0]);
-                  printf("logged_in (login) %d\n", logged_in);
-            }
-
-
-            //Comanda logout
-            else if(strcmp(s, "logout") == 0){
-                const char *rez = "";
-
-                printf("logged_in (pp) %d\n", logged_in);
-                int pid_logout = fork();
-
-                if (pid_logout == 0) {
-                    printf("S-a creat procesul copil pentru comanda logout!\n");
-
-                    printf("logged_in (pc) %d\n", logged_in);
-                    if(logged_in == 1){
-                        logged_in = 0;
-                        printf("User logged out succesfully\n");
-                        close(comm_pipe[0]);
-                        write(comm_pipe[1], &logged_in, sizeof(int));
-                        printf("logged_in : (pc), %d\n",logged_in);
-                        close(comm_pipe[1]);
-                        rez = "User logged out succesfully\n";
-                        write(fd_client, rez, strlen(rez));
-                        exit(0);
-                    }
-                    else{
-                        printf("No user is logged in\n");
-                        rez = "No user is logged in\n";
-                        write(fd_client, rez, strlen(rez));
-                    }
-                }
-                else if (pid_logout< 0) {
-                    perror("Eroare la fork");
-                    exit(1);
-                }
-    }
-
-//                close(comm_pipe[1]);
-//                read(comm_pipe[0], &logged_in, sizeof(int));
-//                close(comm_pipe[0]);
-//                }
-//                else{
-//                    printf("No user is logged in\n");
-//                    rez = "No user is logged in\n";
-//                    write(fd_client, rez, strlen(rez));
-//                }
-//            }
-            //Comanda quit
-            else if (strcmp(s, "quit") == 0) {
-                int pid_quit = fork();
-                if (pid_quit == 0) {
-
-                    printf("S-a creat procesul copil pentru comanda quit!\n");
-
-
-                    close(comm_pipe[1]);
-
-
-                    char quit_msg[10];
-                    read(comm_pipe[0], quit_msg, sizeof(quit_msg));
-
-
-                    write(fd_client, quit_msg, strlen(quit_msg) + 1);
-
-
-                    for (int i = 0; i < num_pids; i++) {
-                        kill(pid_array[i], SIGTERM);
-                    }
-
-
-                    for (int i = 0; i < num_pids; i++) {
-                        int status;
-                        waitpid(pid_array[i], &status, 0);
-                    }
-
-
-                    close(fd);
-                    close(fd_client);
-                    close(comm_pipe[0]);
-                    exit(0);
-                }
-                else if (pid_quit < 0) {
-                    pid_array[num_pids++] = pid_quit;
-                }
-                else {
-
-                    perror("Eroare la fork");
-                    exit(1);
-                }
-                close(comm_pipe[1]);
-            }
-            //Comanda invalida
-            else {
-                const char *invalid_msg = "Comanda invalida! Introduceti alta comanda : ";
-
-                write(fd_client, invalid_msg, strlen(invalid_msg) + 1);
-            }
-
-        }
-    } while (num > 0);
-
-    close(fd_client);
 }
