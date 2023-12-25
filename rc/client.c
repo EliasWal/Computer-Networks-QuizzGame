@@ -26,13 +26,21 @@ void registerClient(int sd) {
   printf("[client] Introduceti un nume: ");
   fflush(stdout);
   read(0, msg, 100);
+  char fullMsg[200];
+  snprintf(fullMsg, sizeof(fullMsg), "nume: %s", msg);
 
   /* trimiterea mesajului la server */
-  if (write(sd, msg, 100) <= 0)
+  if (write(sd, fullMsg, sizeof(fullMsg)) <= 0)
   {
     perror("[client] Eroare la write() spre server.\n");
     exit(errno);
   }
+//  /* trimiterea mesajului la server */
+//  if (write(sd, msg, 100) <= 0)
+//  {
+//    perror("[client] Eroare la write() spre server.\n");
+//    exit(errno);
+//  }
 
   /* citirea raspunsului dat de server (apel blocant pana cand serverul raspunde) */
   if (read(sd, msg, 100) < 0)
@@ -53,15 +61,19 @@ void readyOrNot(int sd) {
     printf("[client] Raspunde cu DA cand esti gata sa incepi! : ");
     fflush(stdout);
     read(0, msg, 100);
+    char fullMsg[200];
+
+    snprintf(fullMsg, sizeof(fullMsg), "ready: %s", msg);
 
     /* trimiterea mesajului la server */
-    if (write(sd, msg, 100) <= 0)
+    if (write(sd, fullMsg, 100) <= 0)
     {
       perror("[client] Eroare la write() spre server.\n");
       exit(errno);
     }
 
     /* citirea raspunsului dat de server (apel blocant pana cand serverul raspunde) */
+//      system("clear");
     if (read(sd, msg, 100) < 0)
     {
       perror("[client] Eroare la read() de la server.\n");
@@ -73,20 +85,26 @@ void readyOrNot(int sd) {
     printf("[client] Mesajul primit este: %s\n", msg);
 
 
+
 }
 
 void answer(int sd) {
   char msg[100];
 
+
     while(1){
+
         /* citirea mesajului */
         bzero(msg, 100);
         printf("[client] Raspunde cu a, b, c sau d: ");
         fflush(stdout);
         read(0, msg, 100);
+        char fullMsg[200];
 
-        /* trimiterea mesajului la server */
-        if (write(sd, msg, 100) <= 0)
+        snprintf(fullMsg, sizeof(fullMsg), "raspuns: %s", msg);
+
+        /* trimiterea mesajului la sserver */
+        if (write(sd, fullMsg, 100) <= 0)
         {
           perror("[client] Eroare la write() spre server.\n");
           exit(errno);
@@ -113,7 +131,10 @@ void answer(int sd) {
           exit(errno);
 
         }
+//        system("clear");
+        printf("--------------------------------------------------\n");
         printf("[client] Mesajul primit este: %s\n", msg);
+
 
 
     }
