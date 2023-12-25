@@ -12,101 +12,13 @@
 #include "cJSON/cJSON.h"
 #include "JSON_Functions.h"
 #include <sqlite3.h>
+#include "SQLite_Functions.h"
 
 #define DB_FILE "questions.db"
 #define PORT 2728
 #define MAXTHREADS 1000000
 #define MAX_Questions 20
 
-int callback(void *NotUsed, int argc, char **argv, char **azColName);
-
-void initializeDatabase() {
-    sqlite3 *db;
-    char *zErrMsg = 0;
-    int rc;
-
-    rc = sqlite3_open(DB_FILE, &db);
-    if (rc) {
-        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
-        exit(1);
-    }
-
-    // Create the questions table
-    char *sql = "CREATE TABLE IF NOT EXISTS questions ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                "question_text TEXT NOT NULL,"
-                "answer_a TEXT NOT NULL,"
-                "answer_b TEXT NOT NULL,"
-                "answer_c TEXT NOT NULL,"
-                "correct_answer TEXT NOT NULL);";
-
-    rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-        sqlite3_free(zErrMsg);
-        sqlite3_close(db);
-        exit(1);
-    }
-
-    sqlite3_close(db);
-}
-
-void insertQuestion(const char *questionText, const char *answerA, const char *answerB, const char *answerC, const char *correctAnswer) {
-    sqlite3 *db;
-    char *zErrMsg = 0;
-    int rc;
-
-    rc = sqlite3_open(DB_FILE, &db);
-    if (rc) {
-        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
-        exit(1);
-    }
-
-    // Insert a question into the database
-    char sql[256];
-    snprintf(sql, sizeof(sql),
-             "INSERT INTO questions (question_text, answer_a, answer_b, answer_c, correct_answer) "
-             "VALUES ('%s', '%s', '%s', '%s', '%s');",
-             questionText, answerA, answerB, answerC, correctAnswer);
-
-    rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-        sqlite3_free(zErrMsg);
-    }
-
-    sqlite3_close(db);
-}
-
-void displayQuestions() {
-    sqlite3 *db;
-    char *zErrMsg = 0;
-    int rc;
-
-    rc = sqlite3_open(DB_FILE, &db);
-    if (rc) {
-        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
-        exit(1);
-    }
-
-    // Display all questions
-    char *sql = "SELECT * FROM questions;";
-    rc = sqlite3_exec(db, sql, callback, 0, &zErrMsg);
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-        sqlite3_free(zErrMsg);
-    }
-
-    sqlite3_close(db);
-}
-
-int callback(void *NotUsed, int argc, char **argv, char **azColName) {
-    for (int i = 0; i < argc; i++) {
-        printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
-    }
-    printf("\n");
-    return 0;
-}
 
 
 int client_fds[MAXTHREADS];
@@ -125,7 +37,7 @@ void* handle_client(void* arg) {
     int client_fd = *((int*)arg);
     char buffer[256];
     int bytes_received;
-    char rasp_corect[MAX_Questions] = {'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b', 'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b'};
+//    char rasp_corect[MAX_Questions] = {'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b', 'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b'};
 
     // Primeste date de la client
     bytes_received = recv(client_fd, buffer, sizeof(buffer), 0);
@@ -187,12 +99,23 @@ void* handle_client(void* arg) {
 
         // Trimite întrebarea către client
         pthread_mutex_lock(&mutex);
-        char question[256];
-        sprintf(question, "Intrebarea %d \n Variante de raspuns: \n a)... \n b) ... \n c) ... \n d) ... \n", i);
+//        char question[256];
+//        sprintf(question, "Intrebarea %d \n Variante de raspuns: \n a)... \n b) ... \n c) ... \n d) ... \n", i);
         printf("Intrebarea curenta: %d\n", i);
-        printf("Raspuns corect: %c\n", rasp_corect[i]);
-        send(client_fd, question, strlen(question), 0);
-        pthread_mutex_unlock(&mutex);
+//        displayQuestions(i);
+        pthread_mutex_lock(&mutex);
+
+char questionBuffer[4096];  // Adjust the size as needed
+displayQuestions(i, questionBuffer, sizeof(questionBuffer));
+
+printf("Intrebarea curenta: %d\n", i);
+printf("Raspuns corect: %c\n", rasp_corect[i]);
+send(client_fd, questionBuffer, strlen(questionBuffer), 0);
+
+pthread_mutex_unlock(&mutex);
+//        printf("Raspuns corect: %c\n", rasp_corect[i]);
+//        send(client_fd, question, strlen(question), 0);
+//        pthread_mutex_unlock(&mutex);
 
         // Așteaptă răspunsul de la client
         bytes_received = recv(client_fd, buffer, sizeof(buffer), 0);
@@ -294,19 +217,13 @@ void initialize_server() {
     close(server_fd);
 }
 
-void addQuestions(){
-    insertQuestion("What is the capital of France?", "Paris", "Berlin", "London", "Paris");
-    insertQuestion("Which planet is known as the Red Planet?", "Venus", "Mars", "Jupiter", "Mars");
-}
+
 
 int main() {
     const char *filename = "clients.json";
     deleteFileContent(filename);
     initializeDatabase();
 
-
-
-    displayQuestions();
     initialize_server();
 
     return 0;
