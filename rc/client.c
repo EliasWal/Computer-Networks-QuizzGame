@@ -1,8 +1,3 @@
-/* cliTCP.c - Exemplu de client TCP
-   Trimite un nume la server; primeste de la server "Hello nume".
-
-   Autor: Lenuta Alboaie <adria@info.uaic.ro> (c)
-*/
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -13,11 +8,15 @@
 #include <netdb.h>
 #include <string.h>
 
+
+
 /* codul de eroare returnat de anumite apeluri */
 extern int errno;
 
 /* portul de conectare la server*/
 int port;
+
+
 
 void registerClient(int sd) {
   char msg[100];
@@ -73,6 +72,7 @@ void readyOrNot(int sd) {
     /* afisam mesajul primit */
     printf("[client] Mesajul primit este: %s\n", msg);
 
+
 }
 
 void answer(int sd) {
@@ -80,7 +80,6 @@ void answer(int sd) {
 
     while(1){
         /* citirea mesajului */
-
         bzero(msg, 100);
         printf("[client] Raspunde cu a, b, c sau d: ");
         fflush(stdout);
@@ -115,6 +114,8 @@ void answer(int sd) {
 
         }
         printf("[client] Mesajul primit este: %s\n", msg);
+
+
     }
 }
 
