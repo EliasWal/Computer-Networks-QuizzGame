@@ -17,13 +17,17 @@
 #define DB_FILE "questions.db"
 #define PORT 2728
 #define MAXTHREADS 1000000
-#define MAX_Questions 20
+#define MAX_Questions 15
 
 time_t start_time;
 int time_remaining;
 int time_expired;
 
+int currentQuestion = 1;
+
 int client_fds[MAXTHREADS];
+int client_scores[MAXTHREADS];
+
 pthread_t threads[MAXTHREADS];
 pthread_mutex_t mutex;
 pthread_barrier_t barrier;  // Barieră pentru a sincroniza clienții
@@ -33,22 +37,54 @@ void handler(int signo) {
     exit(EXIT_FAILURE);
 }
 
+int winnerAnnouncment(int* client_scores) {
+    int maximum = -1;
+    int winner = -1;
+
+    for (int i = 0; i < MAXTHREADS; ++i) {
+        if (client_scores[i] > maximum) {
+            maximum = client_scores[i];
+        }
+    }
+    printf("%d",maximum);
+
+    for (int i = 0; i < MAXTHREADS; ++i) {
+        if (client_scores[i] == maximum) {
+            winner = i;
+
+        }
+    }
+
+    return winner;
+}
+
+
+
+int updateScore(int client_fd, int delta) {
+    int current_score = 0;
+    pthread_mutex_lock(&mutex);
+    for (int i = 0; i < MAXTHREADS; ++i) {
+        if (client_fds[i] == client_fd) {
+            client_scores[i] += delta;
+            current_score = client_scores[i];
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&mutex);
+    return current_score;
+}
+
 void askQuestion(int client_fd, int i){
 //    time_remaining = 20;
 //    time_expired = 0;
 //    start_time = time(NULL);
 
-    char rasp_corect[MAX_Questions] = {'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b', 'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b'};
-
     // Trimite întrebarea către client
     pthread_mutex_lock(&mutex);
     char question[256];
-//    sprintf(question, "Intrebarea %d \n Variante de raspuns: \n a)... \n b) ... \n c) ... \n d) ... \n", i);
-    char *rez = displayQuestion(i,1024);
-//    printf("Intrebarea curenta: %d\n", i);
-//    printf("Raspuns corect: %c\n", rasp_corect[i]);
+    char* rez = displayQuestion(currentQuestion, 1024);
     send(client_fd, rez, strlen(rez), 0);
-//    send(client_fd, question, strlen(question), 0);
     pthread_mutex_unlock(&mutex);
 
 }
@@ -85,11 +121,13 @@ void remove_newline(char *str) {
 
 void* handle_client(void* arg) {
     int client_fd = *((int*)arg);
-    int i=1;
+    int total_questions = 0;
+
+    int i = currentQuestion;
     char buffer[1024];
     int bytes_received;
-    char rasp_corect[MAX_Questions] = {'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b', 'a', 'b', 'c', 'd', 'a', 'a', 'a', 'c', 'a', 'b'};
-    while(1){
+
+    while(total_questions<MAX_Questions){
         // Primeste date de la client
         bytes_received = recv(client_fd, buffer, sizeof(buffer), 0);
         if (bytes_received <= 0) {
@@ -102,6 +140,8 @@ void* handle_client(void* arg) {
             for (int i = 0; i < MAXTHREADS; ++i) {
                 if (client_fds[i] == client_fd) {
                     client_fds[i] = -1;
+                    client_scores[i] = 0;
+
                     break;
                 }
             }
@@ -153,6 +193,8 @@ void* handle_client(void* arg) {
 //                    printf("%s", response);
 //                    send(client_fd, response, strlen(response), 0);
                     printf("Clientul %d a inceput jocul.\n", client_fd);
+                    currentQuestion = i;
+
                     askQuestion(client_fd, i);
 
 //                    updateTimer(client_fd,&mutex);
@@ -160,6 +202,8 @@ void* handle_client(void* arg) {
             }
             else
             if (strstr(buffer, "raspuns") != NULL) {
+
+
                 char response[100];
                 // Căutați începutul șirului "raspuns"
                 const char *start = strstr(buffer, "raspuns: ");
@@ -170,17 +214,18 @@ void* handle_client(void* arg) {
                     printf("Clientul %d a raspuns cu litera '%c' la intrebarea %d. \n", client_fd, answer, i);
 
                     char* right_answer = getCorrectAnswer(i);
-
+                    int current_score = 0;
 
                     if (strncmp(&answer, right_answer, 1) != 0) {
-                        sprintf(response, "Raspuns gresit!\n");
-                        printf("Raspuns gresit!\n\n");
+                        current_score = updateScore(client_fd, 0); // Scorul rămâne neschimbat la răspuns greșit
+                        sprintf(response, "Raspuns gresit! Scorul tau actual: %d\n", current_score);
+                        printf("Raspuns gresit! Scorul tau actual: %d\n\n", current_score);
                         printf("--------------------------------------------------\n\n");
                         send(client_fd, response, strlen(response), 0);
                     } else {
-                        sprintf(response, "Raspuns corect!\n");
-                        printf("Raspuns corect!\n\n");
-                        printf("--------------------------------------------------\n\n");
+                        current_score = updateScore(client_fd, 1); // Actualizează scorul cu 1 punct la răspuns corect
+                        sprintf(response, "Raspuns corect! Scorul tau actual: %d\n", current_score);
+                        printf("Raspuns corect!Scorul tau actual: %d\n\n", current_score);
                         send(client_fd, response, strlen(response), 0);
                     }
                 } else {
@@ -191,14 +236,29 @@ void* handle_client(void* arg) {
             else
             if (strstr(buffer, "next") != NULL){
                 i++;
-askQuestion(client_fd, i);
+                                char response[100];
+                if (i > MAX_Questions) {
+                    int winner = winnerAnnouncment(client_scores);
+                    sprintf(response,"Clientul cu descriptorul %d a castigat! Si tu ai pierdut ca prostu :D", winner);
+//                    strcpy(response, "Ati pierdut!");
+
+                    send(client_fd, response, strlen(response), 0);
+                    shutdown(client_fd, SHUT_RDWR);
+                    close(client_fd);
+
+                    break;
+                }
+                currentQuestion = i;
+
+                askQuestion(client_fd, i);
 
 //                updateTimer(client_fd,&mutex);
             }
         }
     }
-}
+//        printf("Clientul %d a terminat toate cele %d intrebari. Scor final: %d\n", client_fd, MAX_Questions, client_scores[i]);
 
+}
 
 void initialize_server() {
     int server_fd, client_fd, i;
@@ -232,6 +292,7 @@ void initialize_server() {
     pthread_barrier_init(&barrier, NULL, MAXTHREADS);
     for (i = 0; i < MAXTHREADS; ++i) {
         client_fds[i] = -1;
+        client_scores[i] = 0;
     }
 
     printf("Serverul asteapta conexiuni la portul %d...\n", PORT);
@@ -268,13 +329,14 @@ void initialize_server() {
 
 int main() {
     const char *filename = "clients.json";
-//    deleteFileContent(filename);
+    deleteFileContent(filename);
     initializeDatabase();
 //    addQuestions();
 //    deleteDatabaseContent();
 //    resetAutoIncrement();
-    displayAllQuestions(5024);
+//    displayAllQuestions(5024);
     initialize_server();
+
 
     return 0;
 }
