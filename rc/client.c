@@ -116,7 +116,7 @@ void remove_newline(char *str) {
 
 void answer(int sd) {
     char msg[1024];
-    char fullMsg[1024];
+    char fullMsg[1033];
     // citirea raspunsului dat de server
     bzero(msg, sizeof(msg));
     if (read(sd, msg, sizeof(msg)) < 0) {
@@ -124,8 +124,13 @@ void answer(int sd) {
         exit(errno);
     }
     printf("[client] Mesajul primit este: %s\n", msg);
-
-    while (1) {
+//    if (){
+//        system("clear");}
+//        close(sd);
+//
+//    }
+//    else{
+    while (strstr(msg, "ai pierdut") == NULL) {
         // citirea mesajului
         bzero(msg, sizeof(msg));
         printf("[client] Raspunde cu a, b sau c: ");
@@ -166,65 +171,9 @@ void answer(int sd) {
         printf("--------------------------------------------------\n");
         printf("[client] Mesajul primit este: %s\n", msg);
     }
+//    }
 }
 
-//
-//void answer(int sd) {
-//  char msg[1024];
-//    if (read(sd, msg, 1024) < 0)
-//        {
-//          perror("[client] Eroare la read() de la server.\n");
-//          exit(errno);
-//        }
-//
-//
-//    /* afisam mesajul primit */
-//    printf("[client] Mesajul primit este: %s\n", msg);
-//
-//    while(1){
-//
-//        /* citirea mesajului */
-//        bzero(msg, 100);
-//        printf("[client] Raspunde cu a, b sau c: ");
-//        fflush(stdout);
-//        read(0, msg, 1024);
-//        char fullMsg[1024];
-//
-//        snprintf(fullMsg, sizeof(fullMsg), "raspuns: %s", msg);
-//
-//        /* trimiterea mesajului la sserver */
-//        if (write(sd, fullMsg, 100) <= 0)
-//        {
-//          perror("[client] Eroare la write() spre server.\n");
-//          exit(errno);
-//        }
-//
-//        /* citirea raspunsului dat de server (apel blocant pana cand serverul raspunde) */
-//        if (read(sd, msg, 100) < 0)
-//        {
-//          perror("[client] Eroare la read() de la server.\n");
-//          exit(errno);
-//        }
-//        /* afisam mesajul primit */
-//        printf("[client] Mesajul primit este: %s\n", msg);
-//
-//        if (write(sd, "next", 100) <= 0)
-//        {
-//          perror("[client] Eroare la write() spre server.\n");
-//          exit(errno);
-//        }
-//
-//        if (read(sd, msg, 100) < 0)
-//        {
-//          perror("[client] Eroare la read() de la server.\n");
-//          exit(errno);
-//
-//        }
-//        printf("--------------------------------------------------\n");
-//        printf("[client] Mesajul primit este: %s\n", msg);
-//
-//    }
-//}
 
 int main(int argc, char *argv[])
 {
