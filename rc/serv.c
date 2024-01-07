@@ -19,12 +19,9 @@
 #define MAXTHREADS 1000000
 #define MAX_Questions 15
 
-time_t start_time;
-int time_remaining;
-int time_expired;
 
 int currentQuestion = 1;
-
+int time_remaining;
 int client_fds[MAXTHREADS];
 int client_scores[MAXTHREADS];
 
@@ -32,32 +29,76 @@ pthread_t threads[MAXTHREADS];
 pthread_mutex_t mutex;
 pthread_barrier_t barrier;  // Barieră pentru a sincroniza clienții
 
-void handler(int signo) {
-    printf("Timpul a expirat!\n");
-    exit(EXIT_FAILURE);
+
+pthread_t timer_thread;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+int remaining_time = 15;  // Initial timer value in seconds
+int timer_expired = 0;
+
+int remainingTime() {
+    pthread_mutex_lock(&mutex);
+    int current_remaining_time = remaining_time;
+    pthread_mutex_unlock(&mutex);
+
+    return current_remaining_time;
 }
+
+void waitFor(int seconds) {
+    while (seconds > 0) {
+        sleep(1);
+        seconds--;
+
+        pthread_mutex_lock(&mutex);
+        int current_remaining_time = remaining_time;
+        pthread_mutex_unlock(&mutex);
+
+        printf("Waiting... Remaining time: %d seconds\n", current_remaining_time);
+    }
+}
+
+void *timer_function(void *arg) {
+    while (1) {
+        sleep(1);
+
+        pthread_mutex_lock(&mutex);
+        remaining_time--;
+
+        if (remaining_time <= 0) {
+            // Timer expired
+            printf("Timer expired!\n");
+            timer_expired = 1;
+            remaining_time = 15;  // Reset timer to 15 seconds
+        }
+        pthread_mutex_unlock(&mutex);
+    }
+
+    return NULL;
+}
+
+
+void displayTimer(int seconds) {
+    printf("Timp ramas: %02d:%02d", seconds / 60, seconds % 60);
+    fflush(stdout);  // Forțează afișarea imediată a bufferului
+}
+
+pthread_mutex_t timer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int winnerAnnouncment(int* client_scores) {
     int maximum = -1;
     int winner = -1;
 
     for (int i = 0; i < MAXTHREADS; ++i) {
-        if (client_scores[i] > maximum) {
+        if (client_scores[i] >= maximum) {
             maximum = client_scores[i];
-        }
-    }
-    printf("%d",maximum);
-
-    for (int i = 0; i < MAXTHREADS; ++i) {
-        if (client_scores[i] == maximum) {
-            winner = i;
-
+            winner = i;  // Use the index as the winner identifier
         }
     }
 
+    printf("Winner: %d", winner);
     return winner;
 }
-
 
 
 int updateScore(int client_fd, int delta) {
@@ -67,49 +108,29 @@ int updateScore(int client_fd, int delta) {
         if (client_fds[i] == client_fd) {
             client_scores[i] += delta;
             current_score = client_scores[i];
+            // Update the score in the JSON file
+            // updateScoreInJson("clients.json", client_fd, current_score);
             break;
         }
     }
-
     pthread_mutex_unlock(&mutex);
-    return current_score;
+
+    return current_score; // Return the updated score
 }
 
+
+
 void askQuestion(int client_fd, int i){
-//    time_remaining = 20;
-//    time_expired = 0;
-//    start_time = time(NULL);
+
 
     // Trimite întrebarea către client
     pthread_mutex_lock(&mutex);
     char question[256];
     char* rez = displayQuestion(currentQuestion, 1024);
     send(client_fd, rez, strlen(rez), 0);
+//    timer(10);
     pthread_mutex_unlock(&mutex);
 
-}
-
-void updateTimer(int client_fd,pthread_mutex_t* mutex) {
-    while (time_remaining > 0 && !time_expired) {
-        // Actualizează timpul rămas pe client
-        pthread_mutex_lock(mutex);
-        char timer_update[50];
-        printf(timer_update, "\rTimp ramas: %d secunde", time_remaining);
-//        send(client_fd, timer_update, strlen(timer_update), 0);
-        pthread_mutex_unlock(mutex);
-
-        // Așteaptă un moment
-        sleep(1);
-
-        // Scade timpul rămas
-        time_t current_time = time(NULL);
-        time_remaining = 20 - (current_time - start_time);
-        printf("%d", time_remaining);
-
-    }
-
-    // Resetarea flag-ului pentru timp expirat
-    time_expired = 0;
 }
 
 void remove_newline(char *str) {
@@ -118,7 +139,7 @@ void remove_newline(char *str) {
         str[len - 1] = '\0';  // Șterge caracterul nou
     }
 }
-
+int ready_clients=0;
 void* handle_client(void* arg) {
     int client_fd = *((int*)arg);
     int total_questions = 0;
@@ -126,6 +147,7 @@ void* handle_client(void* arg) {
     int i = currentQuestion;
     char buffer[1024];
     int bytes_received;
+    
 
     while(total_questions<MAX_Questions){
         // Primeste date de la client
@@ -146,22 +168,24 @@ void* handle_client(void* arg) {
                 }
             }
             pthread_mutex_unlock(&mutex);
-//            const char* filename = "clients.json";
-//            removeClientByFd(filename, client_fd);
-//            printf("Client %d: ", client_fd);
-//            printf("Client with fd %d removed from JSON.\n", client_fd);
-//
-            break;  // Iesire din bucla la deconectare
+            const char* filename = "clients.json";
+            removeClientByFd(filename, client_fd);
+            printf("Clientul cu descriptorul %d eliminat din fisierul JSON.\n", client_fd);
+            break;
         } else
         {
             // Procesează datele de la client
-            buffer[bytes_received] = '\0'; // Adauga terminatorul la sfarsitul datelor primite
+            buffer[bytes_received] = '\0';
             printf("De la clientul %d: %s\n", client_fd, buffer);
 
             const char *filename = "clients.json";
             if (strstr(buffer, "quit") != NULL){
                 printf("Clientul cu descriptorul %d s-a deconectat.\n", client_fd);
                 pthread_mutex_lock(&mutex);
+                if(ready_clients!=0){
+                    ready_clients--;
+                    currentQuestion = 1;
+                }
                 for (int i = 0; i < MAXTHREADS; ++i) {
                     if (client_fds[i] == client_fd) {
                         client_fds[i] = -1;
@@ -181,6 +205,7 @@ void* handle_client(void* arg) {
             }
             else
             if (strstr(buffer, "ready") != NULL){
+                ready_clients++;
                 // Trimite un mesaj de la server către client
                 char response[100];
                 // Procesează răspunsul de la client
@@ -188,16 +213,36 @@ void* handle_client(void* arg) {
                 remove_newline(buffer);
 
                 printf("Clientul %d a raspuns: %s\n", client_fd, buffer);
-                if (strstr(buffer, "DA") !=NULL) {
-//                    sprintf(response, "Ready to play!\n");
-//                    printf("%s", response);
-//                    send(client_fd, response, strlen(response), 0);
+                if (strstr(buffer, "DA") !=NULL || strstr(buffer, "Da") !=NULL || strstr(buffer, "da") !=NULL ) {
                     printf("Clientul %d a inceput jocul.\n", client_fd);
+                    
                     currentQuestion = i;
-
                     askQuestion(client_fd, i);
-
-//                    updateTimer(client_fd,&mutex);
+                    
+                    printf("Clients ready = %d\n", ready_clients);
+                    if (ready_clients == 1) {
+                        if (pthread_create(&timer_thread, NULL, timer_function, NULL) != 0) {
+                            perror("Error creating thread");
+                            exit(EXIT_FAILURE);
+                        }
+                    
+                        while (!timer_expired) {
+                            sleep(1);
+                            pthread_mutex_lock(&mutex);
+                            int current_remaining_time = remaining_time;
+                            pthread_mutex_unlock(&mutex);
+                            printf("Timer thread: Remaining time: %d seconds\n", current_remaining_time);
+                        }
+                        timer_expired = 0;
+                    }
+                    else {
+                        int rem_time = remainingTime();
+                        waitFor(rem_time);
+                    }
+                                        
+                }
+                else {
+                    printf("Clientul %d nu a inceput jocul. Acesta va fi eliminat :(\n", client_fd);
                 }
             }
             else
@@ -205,17 +250,16 @@ void* handle_client(void* arg) {
 
 
                 char response[100];
-                // Căutați începutul șirului "raspuns"
                 const char *start = strstr(buffer, "raspuns: ");
                 if (start != NULL) {
-                    // Extrageți litera care urmează după "raspuns"
                     char answer = start[strlen("raspuns: ")];
 
                     printf("Clientul %d a raspuns cu litera '%c' la intrebarea %d. \n", client_fd, answer, i);
 
                     char* right_answer = getCorrectAnswer(i);
                     int current_score = 0;
-
+                    
+                    
                     if (strncmp(&answer, right_answer, 1) != 0) {
                         current_score = updateScore(client_fd, 0); // Scorul rămâne neschimbat la răspuns greșit
                         sprintf(response, "Raspuns gresit! Scorul tau actual: %d\n", current_score);
@@ -236,22 +280,48 @@ void* handle_client(void* arg) {
             else
             if (strstr(buffer, "next") != NULL){
                 i++;
-                                char response[100];
-                if (i > MAX_Questions) {
-                    int winner = winnerAnnouncment(client_scores);
-                    sprintf(response,"Clientul cu descriptorul %d a castigat! Si tu ai pierdut ca prostu :D", winner);
-//                    strcpy(response, "Ati pierdut!");
 
+                printf("Primita comanda 'next' de la client.\n");
+
+                char response[100];
+                if (i > MAX_Questions) {
+//                    int winner = winnerAnnouncment(client_scores);
+                    displayWinnerFromJson("clients.json");
+
+                    sprintf(response,"Clientul cu descriptorul .. a castigat! Si tu ai pierdut ca prostu :D");
+//                    strcpy(response, "Ati pierdut!");
+                    currentQuestion = 1;
                     send(client_fd, response, strlen(response), 0);
-                    shutdown(client_fd, SHUT_RDWR);
-                    close(client_fd);
+//                    shutdown(client_fd, SHUT_RDWR);
+//                    close(client_fd);
 
                     break;
                 }
                 currentQuestion = i;
 
                 askQuestion(client_fd, i);
+                if (ready_clients == 1) {
+                        if (pthread_create(&timer_thread, NULL, timer_function, NULL) != 0) {
+                            perror("Error creating thread");
+                            exit(EXIT_FAILURE);
+                        }
+                    
+                        // Wait for all clients to be ready
+                        while (!timer_expired) {
+                            sleep(1);
+                            pthread_mutex_lock(&mutex);
+                            int current_remaining_time = remaining_time;
+                            pthread_mutex_unlock(&mutex);
+                            printf("Main thread: Remaining time: %d seconds\n", current_remaining_time);
+                        }
 
+                        // Reset the timer for the next round
+                        timer_expired = 0;
+                    }
+                    else {
+                        int rem_time = remainingTime();
+                        waitFor(rem_time);
+                    }
 //                updateTimer(client_fd,&mutex);
             }
         }
@@ -329,12 +399,17 @@ void initialize_server() {
 
 int main() {
     const char *filename = "clients.json";
+
+
+    // Wait for the timer thread to finish (which will never happen in this example)
+    pthread_join(timer_thread, NULL);
     deleteFileContent(filename);
     initializeDatabase();
 //    addQuestions();
 //    deleteDatabaseContent();
 //    resetAutoIncrement();
 //    displayAllQuestions(5024);
+//    timer(10);
     initialize_server();
 
 
