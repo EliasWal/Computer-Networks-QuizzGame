@@ -16,34 +16,7 @@ extern int errno;
 /* portul de conectare la server*/
 int port;
 
-void receiveAndDisplayTimer(int sd) {
-    char timer[50];
-    int bytes_received;
 
-    while (1) {
-        // Primește timpul rămas de la server
-        bytes_received = recv(sd, timer, sizeof(timer), 0);
-        if (bytes_received <= 0) {
-            perror("[client] Eroare la recv() de la server.\n");
-            exit(errno);
-        }
-
-        // Afișează timpul rămas pe aceeași linie
-        printf("%s", timer);
-        fflush(stdout);
-
-        // Ieși din buclă dacă timpul rămas este 0
-        if (strstr(timer, "0 secunde") != NULL) {
-            break;
-        }
-
-        // Așteaptă un moment pentru a nu bloca prea mult consola
-        sleep(1);
-        // Șterge linia curentă pentru a afișa timpul rămas actualizat
-        printf("\r");
-        fflush(stdout);
-    }
-}
 
 
 void registerClient(int sd) {
@@ -98,6 +71,7 @@ void readyOrNot(int sd) {
     }
 
 
+
     /* citirea raspunsului dat de server (apel blocant pana cand serverul raspunde) */
 //      system("clear");
 
@@ -124,14 +98,10 @@ void answer(int sd) {
         exit(errno);
     }
     printf("[client] Mesajul primit este: %s\n", msg);
-//    if (){
-//        system("clear");}
-//        close(sd);
-//
-//    }
-//    else{
-    while (strstr(msg, "ai pierdut") == NULL) {
+
+//    while (strstr(msg, "ai pierdut") == NULL) {
         // citirea mesajului
+        while(1){
         bzero(msg, sizeof(msg));
         printf("[client] Raspunde cu a, b sau c: ");
         fflush(stdout);
@@ -156,7 +126,7 @@ void answer(int sd) {
         // afisam mesajul primit
         printf("[client] Mesajul primit este: %s\n", msg);
 
-        if (write(sd, "next", 4) <= 0) {
+        if (write(sd, "next", strlen("next") + 1) <= 0) {
             perror("[client] Eroare la write() spre server.\n");
             exit(errno);
         }
