@@ -8,16 +8,17 @@
 #include <netdb.h>
 #include <string.h>
 #include <arpa/inet.h>
-
+#include <signal.h>
+#include <pthread.h>
+#include <sys/select.h>
 
 /* codul de eroare returnat de anumite apeluri */
 extern int errno;
 
+volatile sig_atomic_t timer_expired = 0;
+
 /* portul de conectare la server*/
 int port;
-
-
-
 
 void registerClient(int sd) {
   char msg[100];
@@ -88,60 +89,83 @@ void remove_newline(char *str) {
 
 
 
+
 void answer(int sd) {
     char msg[1024];
     char fullMsg[1033];
-    // citirea raspunsului dat de server
-    bzero(msg, sizeof(msg));
-    if (read(sd, msg, sizeof(msg)) < 0) {
-        perror("[client] Eroare la read() de la server.\n");
-        exit(errno);
+
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+
+    while (1) {
+        FD_SET(0, &read_fds); // Descriptorul pentru citire de la tastatură
+        FD_SET(sd, &read_fds); // Descriptorul pentru citire de la server
+
+        // Setăm timeout la 1 secundă
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int ready_fds = select(sd + 1, &read_fds, NULL, NULL, &timeout);
+
+        if (ready_fds < 0) {
+            perror("[client] Eroare la select().\n");
+            exit(errno);
+        } else if (ready_fds > 0) {
+            if (FD_ISSET(0, &read_fds)) {
+                // Citire de la tastatură
+                bzero(msg, sizeof(msg));
+                fflush(stdout);
+                fgets(msg, sizeof(msg), stdin);
+                remove_newline(msg);
+
+                snprintf(fullMsg, sizeof(fullMsg), "raspuns: %s", msg);
+
+                // Trimitere mesaj la server
+                if (write(sd, fullMsg, sizeof(fullMsg)) <= 0) {
+                    perror("[client] Eroare la write() spre server.\n");
+                    exit(errno);
+                }
+            }
+
+            if (FD_ISSET(sd, &read_fds)) {
+                // Citire de la server
+                bzero(msg, sizeof(msg));
+                if (read(sd, msg, sizeof(msg)) < 0) {
+                    perror("[client] Eroare la read() de la server.\n");
+                    exit(errno);
+                }
+
+                if (strstr(msg, "expirat") != NULL) {
+                    timer_expired = 1;
+                }
+
+                if (timer_expired) {
+                    printf("Handle timer expiration logic here.\n");
+                    // Adaugă logica ta pentru tratarea expirării timer-ului
+                }
+
+                // Afișare mesaj primit de la server
+                printf("[client] Mesajul primit este: %s\n", msg);
+
+                // Trimitere comandă "next" la server
+                if (write(sd, "next", strlen("next") + 1) <= 0) {
+                    perror("[client] Eroare la write() spre server.\n");
+                    exit(errno);
+                }
+
+                // Citire de la server pentru comanda "next"
+                bzero(msg, sizeof(msg));
+                if (read(sd, msg, sizeof(msg)) < 0) {
+                    perror("[client] Eroare la read() de la server.\n");
+                    exit(errno);
+                }
+
+                printf("--------------------------------------------------\n");
+                printf("[client] Mesajul primit este: %s\n", msg);
+            }
+        }
     }
-    printf("[client] Mesajul primit este: %s\n", msg);
-
-//    while (strstr(msg, "ai pierdut") == NULL) {
-        // citirea mesajului
-        while(1){
-        bzero(msg, sizeof(msg));
-        printf("[client] Raspunde cu a, b sau c: ");
-        fflush(stdout);
-        fgets(msg, sizeof(msg), stdin);
-        remove_newline(msg);
-
-        snprintf(fullMsg, sizeof(fullMsg), "raspuns: %s", msg);
-
-        // trimiterea mesajului la server
-        if (write(sd, fullMsg, sizeof(fullMsg)) <= 0) {
-            perror("[client] Eroare la write() spre server.\n");
-            exit(errno);
-        }
-
-        // citirea raspunsului dat de server
-        bzero(msg, sizeof(msg));
-        if (read(sd, msg, sizeof(msg)) < 0) {
-            perror("[client] Eroare la read() de la server.\n");
-            exit(errno);
-        }
-
-        // afisam mesajul primit
-        printf("[client] Mesajul primit este: %s\n", msg);
-
-        if (write(sd, "next", strlen("next") + 1) <= 0) {
-            perror("[client] Eroare la write() spre server.\n");
-            exit(errno);
-        }
-
-        // citirea raspunsului dat de server
-        bzero(msg, sizeof(msg));
-        if (read(sd, msg, sizeof(msg)) < 0) {
-            perror("[client] Eroare la read() de la server.\n");
-            exit(errno);
-        }
-
-        printf("--------------------------------------------------\n");
-        printf("[client] Mesajul primit este: %s\n", msg);
-    }
-//    }
 }
 
 
