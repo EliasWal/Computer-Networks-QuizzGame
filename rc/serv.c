@@ -32,7 +32,8 @@ pthread_barrier_t barrier;  // Barieră pentru a sincroniza clienții
 
 pthread_t timer_thread;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-
+pthread_mutex_t timer_mutex = PTHREAD_MUTEX_INITIALIZER;
+int timer_started = 0;  
 
 int remaining_time = 15;  // Initial timer value in seconds
 int timer_expired = 0;
@@ -62,7 +63,7 @@ void *timer_function(void *arg) {
     while (1) {
         sleep(1);
 
-        pthread_mutex_lock(&mutex);
+        pthread_mutex_lock(&timer_mutex);
         remaining_time--;
 
         if (remaining_time <= 0) {
@@ -70,8 +71,11 @@ void *timer_function(void *arg) {
             printf("Timer expired!\n");
             timer_expired = 1;
             remaining_time = 15;  // Reset timer to 15 seconds
+
+            // Reset flag-ul pentru a permite pornirea timer-ului la următoarea întrebare
+            
         }
-        pthread_mutex_unlock(&mutex);
+        pthread_mutex_unlock(&timer_mutex);
     }
 
     return NULL;
@@ -83,7 +87,7 @@ void displayTimer(int seconds) {
     fflush(stdout);  // Forțează afișarea imediată a bufferului
 }
 
-pthread_mutex_t timer_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 
 int winnerAnnouncment(int* client_scores) {
     int maximum = -1;
@@ -221,11 +225,13 @@ void* handle_client(void* arg) {
                     
                     printf("Clients ready = %d\n", ready_clients);
                     if (ready_clients == 1) {
-                        if (pthread_create(&timer_thread, NULL, timer_function, NULL) != 0) {
-                            perror("Error creating thread");
-                            exit(EXIT_FAILURE);
+                        printf("Timer started?: %d\n", timer_started);
+                        pthread_mutex_lock(&timer_mutex);
+                        if (!timer_started) {
+                            timer_started = 1;  // Setează flag-ul pentru a indica că timer-ul a fost pornit
+                            pthread_create(&timer_thread, NULL, timer_function, NULL);
                         }
-                    
+                        pthread_mutex_unlock(&timer_mutex);
                         while (!timer_expired) {
                             sleep(1);
                             pthread_mutex_lock(&mutex);
@@ -233,6 +239,7 @@ void* handle_client(void* arg) {
                             pthread_mutex_unlock(&mutex);
                             printf("Timer thread: Remaining time: %d seconds\n", current_remaining_time);
                         }
+
                         timer_expired = 0;
                     }
                     else {
@@ -301,21 +308,21 @@ void* handle_client(void* arg) {
 
                 askQuestion(client_fd, i);
                 if (ready_clients == 1) {
-                        if (pthread_create(&timer_thread, NULL, timer_function, NULL) != 0) {
-                            perror("Error creating thread");
-                            exit(EXIT_FAILURE);
+                        printf("Timer started?: %d\n", timer_started);
+                        pthread_mutex_lock(&timer_mutex);
+                        if (!timer_started) {
+                            timer_started = 1;  // Setează flag-ul pentru a indica că timer-ul a fost pornit
+                            pthread_create(&timer_thread, NULL, timer_function, NULL);
                         }
-                    
-                        // Wait for all clients to be ready
+                        pthread_mutex_unlock(&timer_mutex);
                         while (!timer_expired) {
                             sleep(1);
                             pthread_mutex_lock(&mutex);
                             int current_remaining_time = remaining_time;
                             pthread_mutex_unlock(&mutex);
-                            printf("Main thread: Remaining time: %d seconds\n", current_remaining_time);
+                            printf("Timer thread: Remaining time: %d seconds\n", current_remaining_time);
                         }
 
-                        // Reset the timer for the next round
                         timer_expired = 0;
                     }
                     else {
