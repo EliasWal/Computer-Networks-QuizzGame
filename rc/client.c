@@ -43,7 +43,7 @@ void registerClient(int sd) {
 void readyOrNot(int sd) {
 
     char msg[100];
-/* citirea raspunsului dat de server (apel blocant pana cand serverul raspunde) */
+
     if (read(sd, msg, 100) < 0)
     {
     perror("[client] Eroare la read() de la server.\n");
@@ -70,15 +70,6 @@ void readyOrNot(int sd) {
       perror("[client] Eroare la write() spre server.\n");
       exit(errno);
     }
-
-
-
-    /* citirea raspunsului dat de server (apel blocant pana cand serverul raspunde) */
-//      system("clear");
-
-
-
-
 }
 void remove_newline(char *str) {
     size_t len = strlen(str);
@@ -142,10 +133,11 @@ void answer(int sd) {
 
                 if (timer_expired) {
                     printf("Handle timer expiration logic here.\n");
-                    // Adaugă logica ta pentru tratarea expirării timer-ului
+
+                    timer_expired = 0;
+
                 }
 
-                // Afișare mesaj primit de la server
                 printf("[client] Mesajul primit este: %s\n", msg);
 
                 // Trimitere comandă "next" la server
