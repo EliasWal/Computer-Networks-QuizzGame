@@ -11,14 +11,13 @@
 #include "JSON_Functions.h"
 #include <sqlite3.h>
 #include "SQLite_Functions.h"
-#include <signal.h>
 
 
 #define DB_FILE "questions.db"
 #define PORT 2728
 #define MAXTHREADS 1000000
 #define MAX_Questions 15
-#define TIMER_EXPIRED_SIGNAL SIGUSR1
+#define MAX_Time 15
 
 
 int currentQuestion = 1;
@@ -36,7 +35,7 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t timer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int timer_started = 0;  
-int remaining_time = 15;  // Initial timer value in seconds
+int remaining_time = MAX_Time;  // Initial timer value in seconds
 int timer_expired = 0;
 int ready_clients=0;
 int current_client_fd = -1;
@@ -73,7 +72,7 @@ void *timer_function(void *arg) {
         if (remaining_time <= 0) {
             printf("Timer expired!\n");
             timer_expired = 1;
-            remaining_time = 15;
+            remaining_time = MAX_Time;
 
             current_client_fd = -1;
             for (int i = 0; i < MAXTHREADS; ++i) {
@@ -87,8 +86,11 @@ void *timer_function(void *arg) {
             pthread_mutex_unlock(&timer_mutex);
 
             if (current_client_fd != -1) {
+    
                 printf("Sending message to client about timer expiration.\n");
-                // Adaugă logica ta pentru a trimite un mesaj clientului despre expirarea timer-ului
+                const char *timeout_message = "Timpul a expirat! Te rog raspunde la intrebare.";
+                send(current_client_fd, timeout_message, strlen(timeout_message), 0);
+    
             }
         } else {
             pthread_mutex_unlock(&mutex);
@@ -113,20 +115,6 @@ int findWinner(int* scores, int numParticipants) {
     return winnerIndex;
 }
 
-int winnerAnnouncment(int* client_scores) {
-    int maximum = -1;
-    int winner = -1;
-
-    for (int i = 0; i < MAXTHREADS; ++i) {
-        if (client_scores[i] >= maximum) {
-            maximum = client_scores[i];
-            winner = i;  // Use the index as the winner identifier
-        }
-    }
-
-    printf("Winner: %d", winner);
-    return winner;
-}
 
 
 int updateScore(int client_fd, int delta) {
@@ -204,9 +192,9 @@ void* handle_client(void* arg) {
 
             if (timer_expired && client_fd == current_client_fd) {
                 // Trimite un mesaj către client că timpul a expirat
-                printf("Sending message to client about timer expiration.\n");
-                const char *timeout_message = "Timpul a expirat! Te rog raspunde la intrebare.";
-                send(client_fd, timeout_message, strlen(timeout_message), 0);
+                // printf("Sending message to client about timer expiration.\n");
+                // const char *timeout_message = "Timpul a expirat! Te rog raspunde la intrebare.";
+                // send(client_fd, timeout_message, strlen(timeout_message), 0);
 
                 // Resetează variabilele pentru următorul ciclu
                 timer_expired = 0;
@@ -452,9 +440,6 @@ void initialize_server() {
 
 int main() {
     const char *filename = "clients.json";
-
-
-    // Wait for the timer thread to finish (which will never happen in this example)
     pthread_join(timer_thread, NULL);
     deleteFileContent(filename);
     initializeDatabase();
