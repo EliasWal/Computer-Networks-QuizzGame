@@ -7,9 +7,27 @@
 #include "cJSON/cJSON.h"
 
 char* extractNameByDescriptor(int descriptor, const char* filename) {
-    cJSON* root = cJSON_Parse(filename);
+    FILE* file = fopen(filename, "r");
+    if (file == NULL) {
+        perror("Error opening JSON file");
+        return NULL;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    rewind(file);
+
+    char* json_content = (char*)malloc(file_size + 1);
+    fread(json_content, 1, file_size, file);
+    fclose(file);
+
+    json_content[file_size] = '\0';
+
+    cJSON* root = cJSON_Parse(json_content);
+    free(json_content);
+
     if (root == NULL) {
-        printf("Eroare la parsarea JSON-ului.\n");
+        perror("Error parsing JSON");
         return NULL;
     }
 
@@ -24,14 +42,13 @@ char* extractNameByDescriptor(int descriptor, const char* filename) {
             if (cJSON_IsNumber(fd) && fd->valueint == descriptor) {
                 cJSON *name = cJSON_GetObjectItemCaseSensitive(client, "name");
                 if (cJSON_IsString(name)) {
-                    char *name_value = strdup(name->valuestring);  // Duplicate stringul pentru a evita eliberarea prematură a memoriei
+                    char *name_value = strdup(name->valuestring);
                     cJSON_Delete(root);
                     return name_value;
                 } else {
                     printf("Numele nu este de tip string.\n");
                 }
 
-                // Dacă găsește un client cu descriptorul dat, iese din bucla
                 break;
             }
         }
@@ -40,6 +57,7 @@ char* extractNameByDescriptor(int descriptor, const char* filename) {
     cJSON_Delete(root);
     return NULL;
 }
+
 
 void removeClientByFd(const char* filename, int client_fd) {
     FILE* file = fopen(filename, "r");
